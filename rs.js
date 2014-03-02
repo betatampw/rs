@@ -4,37 +4,41 @@ var csv = require('csv');
 var tableData;
 var lines;
 
-csv().from('table_test2.csv', { // получаем матрицу рейтингов
+csv().from('table.csv', { // получаем матрицу рейтингов
   delimiter: ';'
 }).to.array(function(data) {
   //console.log(data)
-  itemBasedAC(0, 0, data); // USER BASED
 
 
-  /* 
- csv().from('tableCells.csv', {
- delimiter: ';'
- }).to.array(function(dataCells) { // получаем тестовые ячеки
- //console.log(dataCells)
+  console.log(itemBased(0, 0, data))
 
- var T = 0;
- var RMSE = 0;
- var E = 0;
- for (var cell=0; cell < dataCells.length; cell++) {
- cellData = {user:dataCells[cell][0],item:dataCells[cell][1],value:dataCells[cell][2]};
- data[cellData.user][cellData.item] = '';
- //cellData.value0 = getMidR(cellData.user, cellData.item, data); // MID R
- cellData.value0 = userBased(cellData.user, cellData.item, data);// USER BASED 
- data[cellData.user][cellData.item] = cellData.value;
- console.log(cellData)
- E += Math.pow((cellData.value0 - cellData.value), 2)
- T++;
- RMSE = Math.sqrt(E / T)
- console.log('T: ' + T + ' RMSE: ' + RMSE); 
- }; 
- }) 
-*/
+  var tmpR = 0;
+  var T = 0;
+  var E_UB = 0;
+  var E_IB_PC = 0;
+  var E_IB_AC = 0;
+  for (var u = data.length - 1; u >= 0; u--) {
+    for (var i = data[u].length - 1; i >= 0; i--) {
+      if (data[u][i]) {
+        T++;
+        tmpR = data[u][i];
+        data[u][i] = false;
+        UB = userBased(u, i, data);
+        IB_PC = itemBased(u, i, data);
+        IB_AC = itemBasedAC(u, i, data);
 
+        E_UB += Math.pow((UB - tmpR), 2)
+        E_IB_PC += Math.pow((IB_PC - tmpR), 2)
+        E_IB_AC += Math.pow((IB_AC - tmpR), 2)
+
+        RMSE_UB = Math.sqrt(E_UB / T);
+        RMSE_IB_PC = Math.sqrt(E_IB_PC / T);
+        RMSE_IB_AC = Math.sqrt(E_IB_AC / T);
+        console.log("UB:(" + UB.toFixed(2) + ") " + RMSE_UB.toFixed(4) + "  IB_PC:(" + IB_PC.toFixed(2) + ") " + RMSE_IB_PC.toFixed(4) + "  IB_AC:(" + IB_AC.toFixed(2) + ") " + RMSE_IB_AC.toFixed(4) + " U:" + u + "  I:" + i + " R:" + tmpR)
+        data[u][i] = tmpR;
+      }
+    };
+  };
 
 })
 
@@ -112,8 +116,8 @@ function userBased(userX, itemX, data) {
   if (!res) {
     res = 0;
   }
-  console.log(WUserUser);
-  console.log(res);
+  //console.log(WUserUser);
+  // console.log(res);
   return res;
 }
 
@@ -121,6 +125,7 @@ function itemBased(u, i, data) {
   var PC = {};
   var mids = {};
   var Vij = {};
+  var counter;
 
   for (var j = data[0].length - 1; j >= 0; j--) {
     Vij[j] = [] // пользователи оценившие товар j и товар i
@@ -142,35 +147,55 @@ function itemBased(u, i, data) {
     var Erixrj = 0;
     var Eri2 = 0;
     var Erj2 = 0;
+    PC[j] = 0;
     for (var v in Vij[j]) {
       Erixrj += (data[Vij[j][v]][i] - mids[i]) * (data[Vij[j][v]][j] - mids[j]);
       Eri2 += Math.pow((data[Vij[j][v]][i] - mids[i]), 2);
       Erj2 += Math.pow((data[Vij[j][v]][j] - mids[j]), 2);
     };
-    PC[j] = Erixrj / Math.sqrt(Eri2 * Erj2);
+    if (Erixrj && Eri2 && Erj2) {
+      PC[j] = Erixrj / Math.sqrt(Eri2 * Erj2);
+    }
+
   }
-  console.log(PC);
+  //console.log(PC);
 
   var EPCruj = 0;
   var EPC = 0;
+  var rui = 0;
   for (var j = data[0].length - 1; j >= 0; j--) {
-
+    if (data[u][j]) {
+      EPCruj += (data[u][j] - mids[j]) * PC[j]
+      EPC += Math.abs(PC[j])
+    }
   }
-
+  if (EPC) {
+    rui = mids[i] + EPCruj / EPC;
+  }
+  //console.log(rui);
+  return rui;
 }
 
 function itemBasedAC(u, i, data) {
   var AC = {};
   var mids = {};
+  var midsItem = {};
   var Vij = {};
-
+  var counter;
   for (var j = data[0].length - 1; j >= 0; j--) {
     Vij[j] = [] // пользователи оценившие товар j и товар i
+    midsItem[j] = 0; // средний рейтинг товара j
+    counter = 0;
     for (var v = data.length - 1; v >= 0; v--) {
+      if (data[v][j]) {
+        midsItem[j] += parseInt(data[v][j]);
+        counter++;
+      }
       if (data[v][j] && data[v][i]) {
         Vij[j].push(v);
       }
     };
+    midsItem[j] = midsItem[j] / counter
   };
 
   for (var v = data.length - 1; v >= 0; v--) {
@@ -189,19 +214,30 @@ function itemBasedAC(u, i, data) {
     var Erixrj = 0;
     var Eri2 = 0;
     var Erj2 = 0;
+    AC[j] = 0;
     for (var v in Vij[j]) {
       Erixrj += (data[Vij[j][v]][i] - mids[v]) * (data[Vij[j][v]][j] - mids[v]);
       Eri2 += Math.pow((data[Vij[j][v]][i] - mids[v]), 2);
       Erj2 += Math.pow((data[Vij[j][v]][j] - mids[v]), 2);
     };
-    AC[j] = Erixrj / Math.sqrt(Eri2 * Erj2);
+    if (Erixrj && Eri2 && Erj2) {
+      AC[j] = Erixrj / Math.sqrt(Eri2 * Erj2);
+    }
   }
-  console.log(AC);
+  //console.log(AC);
 
   var EACruj = 0;
   var EAC = 0;
+  var rui = 0;
   for (var j = data[0].length - 1; j >= 0; j--) {
-
+    if (data[u][j]) {
+      EACruj += (data[u][j] - midsItem[j]) * AC[j]
+      EAC += Math.abs(AC[j])
+    }
   }
-
+  if (EAC) {
+    rui = midsItem[i] + EACruj / EAC;
+  }
+  //console.log(rui);
+  return rui;
 }
